@@ -1,4 +1,8 @@
 #include "systemcalls.h"
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +20,8 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
-    return true;
+    int status = system(cmd);
+    return (status == 0);
 }
 
 /**
@@ -58,10 +62,31 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
-
     va_end(args);
 
-    return true;
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        return false;
+    }
+    
+    if (pid == 0)
+    {
+        // Child process: execute command
+        execv(command[0], command);
+        
+        // execv only returns if an error occurred
+        exit(EXIT_FAILURE);
+    }
+
+    // Parent process: wait for specific child
+    int status;
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        return false;
+    }
+
+    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
 /**
@@ -95,5 +120,40 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 
     va_end(args);
 
-    return true;
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        return false;
+    }
+
+    if (pid == 0)
+    {
+        // Open target file (write-only, create if missing, truncate)
+        int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0)
+        {
+            exit(EXIT_FAILURE);
+        }
+
+        // Redirect STDOUT to fd and close original descriptor
+        if (dup2(fd, STDOUT_FILENO) < 0)
+        {
+            close(fd);
+            exit(EXIT_FAILURE);
+        }
+        close(fd);
+
+        execv(command[0], command);
+        exit(EXIT_FAILURE);
+    }
+
+    // Parent process
+    int status;
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        return false;
+    }
+
+    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    // return true;
 }
